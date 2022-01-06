@@ -1,6 +1,7 @@
 import pygame
 import os
 import math
+import random
 
 # Global Variables
 window_Width, window_Height = 2000, 1000
@@ -18,6 +19,7 @@ rocket_Thrust1_Force = 1 #N
 rocket_Thrust2_Force = 2 #N
 distance_Coordinates = 1 #m (one pixel in game coordinates = 1m)
 time_Conversion = 1 #ticks per second (one iteration of the game loop = one second in the physics simulation)
+asteroid_Weight = 100000 #kg
 
 # Game Image Assets
 # rocket_Images[0] = no thrust,
@@ -31,6 +33,8 @@ red_Rocket_Images = [pygame.image.load(os.path.join(baseDir, 'Assets', 'Red Rock
     pygame.image.load(os.path.join(baseDir, 'Assets', 'Red Rocket_Small Flame.png')),
     pygame.image.load(os.path.join(baseDir, 'Assets', 'Red Rocket_Big Flame.png'))]
 
+asteroid_Images = [pygame.image.load(os.path.join(baseDir, 'Assets', 'Asteroid1.png'))]
+
 # Game Colors
 white = (255, 255, 255)
 black = (0, 0, 0)
@@ -43,6 +47,12 @@ class Rocket:
         self.angle = angle
         self.position = position
         self.color = color
+        self.img = None        
+        if color == 'red':
+            self.img = red_Rocket_Images[0]
+        elif color == 'blue':
+            self.img = blue_Rocket_Images[0]
+        self.rect = self.img.get_rect
 
         # Initialize rockets with fixed parameters.
         self.velocityX = 0
@@ -50,17 +60,50 @@ class Rocket:
         self.mass = rocket_Weight        
         self.thrust = 0
         
+    def get_mask(self):
+        return pygame.mask.from_surface(self.img)
+
+class Asteroid:
+    def __init__(self, angle, position):
+        # Variable Init parameters
+        self.angle = angle
+        self.position = position
+
+        # Initialize rockets with fixed parameters.
+        self.velocityX = 0
+        self.velocityY = 0
+        self.mass = asteroid_Weight
+        self.img = asteroid_Images[0]
+        self.rect = self.img.get_rect
+
+    def collide(self, rocket):
+        rocket_mask = rocket.get_mask()
+        asteroid_mask = pygame.mask.from_surface(self.img)
+
+        offset = (self.rect.x - rocket.rect.x, self.rect.y - rocket.rect.y)
+        print(offset)
+
+        pygame.draw.polygon(window,(150,200,150),asteroid_mask.outline(),0)
+
+        if rocket_mask.overlap(asteroid_mask, offset):
+            pygame.draw.polygon(window,(200,150,150),rocket_mask.outline(),0)
+        else:
+            pygame.draw.polygon(window,(150,200,150),rocket_mask.outline(),0)
+
+        
+        
+
+        
 
 # Dynamic Game Data
 rockets = []
+asteroids = []
 
 def handle_rocket_movement(keys_pressed, rocket):
     if keys_pressed [pygame.K_LEFT]: # LEFT
         rocket.angle += rocket_Rotation_Speed
     if keys_pressed [pygame.K_RIGHT]: # RIGHT
-        rocket.angle -= rocket_Rotation_Speed
-
-    print(rocket.angle)
+        rocket.angle -= rocket_Rotation_Speed    
 
     # Set acceleration to zero, unless there is active thrust.
     accelerationX, accelerationY = 0, 0
@@ -101,7 +144,7 @@ def handle_rocket_movement(keys_pressed, rocket):
             rocket.position = (rocket.position[0], rocket.position[1] - window_Height)
         
 
-def blit_rotate(image, pos, angle):
+def blit_rotate(image, pos, angle, object):
     imgSizeX, imgSizeY = image.get_size()
     image_rect = image.get_rect(topleft = (pos[0] - imgSizeX / 2, pos[1] - imgSizeY / 2))
     offset_center_to_pivot = pygame.math.Vector2(pos) - image_rect.center
@@ -114,31 +157,44 @@ def blit_rotate(image, pos, angle):
 
     # get a rotated image
     rotated_image = pygame.transform.rotate(image, angle)
+    object.img = rotated_image
     rotated_image_rect = rotated_image.get_rect(center = rotated_image_center)
+    object.rect = rotated_image_rect
 
     # rotate and blit the image
     window.blit(rotated_image, rotated_image_rect)
 
     # draw rectangle around the image
-    # pygame.draw.rect(window, (255, 0, 0), (*rotated_image_rect.topleft, *rotated_image.get_size()),2)
+    #pygame.draw.rect(window, (255, 0, 0), (*rotated_image_rect.topleft, *rotated_image.get_size()),2)
 
+def generate_Asteroids(number):
+    for i in range(number):
+        ranX = random.randrange(1,window_Width)
+        ranY = random.randrange(1,window_Height)
+        ranAngle = random.randrange(1,361)
+        asteroids.append(Asteroid(ranAngle, (ranX, ranY)))
 
 # Draw Functions
 def draw_window():
     window.fill(black)
+    draw_asteroids()
     draw_rockets()
+
+    #Debug
+    asteroids[0].collide(rockets[0])
+
     pygame.display.update()
 
 def draw_rockets():
     for rocket in rockets:
         if rocket.color == 'blue':
-            blit_rotate(blue_Rocket_Images[rocket.thrust], rocket.position, rocket.angle)
+            blit_rotate(blue_Rocket_Images[rocket.thrust], rocket.position, rocket.angle, rocket)
             # window.blit(pygame.transform.rotate(
             #     blue_Rocket_Images[rocket.thrust], rocket.angle), 
             #     rocket.position)
 
         elif rocket.color == 'red':
-            blit_rotate(red_Rocket_Images[rocket.thrust], rocket.position, rocket.angle)
+            blit_rotate(red_Rocket_Images[rocket.thrust], rocket.position, rocket.angle, rocket)
             # window.blit(pygame.transform.rotate(
             #     red_Rocket_Images[rocket.thrust], rocket.angle), 
             #     rocket.position)
@@ -147,8 +203,17 @@ def draw_rockets():
         # Draw a circle on the rockets real position point
         pygame.draw.circle(window, green, rocket.position, 2)
 
+def draw_asteroids():
+    for asteroid in asteroids:
+        blit_rotate(asteroid_Images[0], asteroid.position, asteroid.angle, asteroid)
+        
+        # Debug
+        # Draw a circle on the rockets real position point
+        pygame.draw.circle(window, green, asteroid.position, 2)
+
 def main():
     rockets.append(Rocket(0, (300.0, 300.0), 'red'))
+    generate_Asteroids(1)
     clock = pygame.time.Clock()
     run = True
     while run:
