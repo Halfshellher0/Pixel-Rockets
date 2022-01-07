@@ -11,15 +11,17 @@ window = pygame.display.set_mode((window_Width, window_Height))
 pygame.display.set_caption("Pixel Rockets")
 baseDir = os.path.dirname(__file__)
 screen_Wrapping = False
+take_Off_Frames_Max = 50 # How many frames to pause collision detection after take off
 
 # Physics Variables
-rocket_Rotation_Speed = 0.4
+rocket_Rotation_Speed = 0.7
 rocket_Weight = 1000 #kg
 rocket_Thrust1_Force = 1 #N
 rocket_Thrust2_Force = 2 #N
 distance_Coordinates = 1 #m (one pixel in game coordinates = 1m)
 time_Conversion = 1 #ticks per second (one iteration of the game loop = one second in the physics simulation)
 asteroid_Weight = 100000 #kg
+crash_Speed_Threshold = 0.2
 
 # Game Image Assets
 # rocket_Images[0] = no thrust,
@@ -59,6 +61,22 @@ class Rocket:
         self.velocityY = 0
         self.mass = rocket_Weight        
         self.thrust = 0
+        self.landed = False
+        self.take_Off_Frames = 0
+
+    def increase_Thrust(self):
+        if self.thrust == 0:
+            if self.landed:
+                self.landed = False
+                self.take_Off_Frames = take_Off_Frames_Max
+            self.thrust += 1
+        elif self.thrust == 1:
+            self.thrust += 1
+
+    def decrease_Thrust(self):
+        if self.thrust > 0:
+            self.thrust -= 1
+        
         
     def get_mask(self):
         return pygame.mask.from_surface(self.img)
@@ -77,23 +95,78 @@ class Asteroid:
         self.rect = self.img.get_rect
 
     def collide(self, rocket):
-        rocket_mask = rocket.get_mask()
-        asteroid_mask = pygame.mask.from_surface(self.img)
+        # Check that the rocket has not very recently taken off before collision check.
+        if rocket.take_Off_Frames == 0:
+            rocket_mask = rocket.get_mask()
+            asteroid_mask = pygame.mask.from_surface(self.img)
 
-        offset = (self.rect.x - rocket.rect.x, self.rect.y - rocket.rect.y)
-        print(offset)
+            offset = (self.rect.x - rocket.rect.x, self.rect.y - rocket.rect.y)
 
-        pygame.draw.polygon(window,(150,200,150),asteroid_mask.outline(),0)
+            if rocket_mask.overlap(asteroid_mask, offset):
+                # Rocket is in contact with the asteroid.
+                # Ensure that the rocket is landing on its base
+                angle_Asteroid = calculate_Angle(rocket, self)
+                opposite_Angle = 0
+                if angle_Asteroid >= 180:
+                    opposite_Angle = angle_Asteroid - 180
+                else:
+                    opposite_Angle = angle_Asteroid + 180
+                max_Angle = (opposite_Angle + 90) % 360
+                min_Angle = (opposite_Angle - 90) % 360       
 
-        if rocket_mask.overlap(asteroid_mask, offset):
-            pygame.draw.polygon(window,(200,150,150),rocket_mask.outline(),0)
+                # Check whether the rocket is landing in the correct orientation.
+                if check_Angle(rocket.angle % 360, max_Angle, min_Angle):
+                    # Calculate relative velocity between objects.
+                    relative_Velocity = math.sqrt((self.velocityX - rocket.velocityX) ** 2 + (self.velocityY - rocket.velocityY) ** 2)      
+                    if relative_Velocity < crash_Speed_Threshold:
+                        # Rocket landed slowly enough to land.
+                        rocket.thrust = 0
+                        rocket.velocityX = 0
+                        rocket.velocityY = 0
+                        rocket.landed = True
+                    else:
+                        # Rocket crash landed on asteroid.     
+                        rockets.pop(rockets.index(rocket))
+                else:
+                        # Rocket crash landed on asteroid.     
+                        rockets.pop(rockets.index(rocket))            
+            
+            
+
+# Calculate an angle between a rocket and a destination object.    
+def calculate_Angle(rocket, object):
+    diffX = object.position[0] - rocket.position[0]
+    diffY = object.position[1] - rocket.position[1]
+    angle = math.degrees(math.atan(diffX / diffY))
+
+    # Determine the quadrant where the destination object lies, and add an offset to it.
+    if diffX <= 0 and diffY <= 0:
+        pass
+    elif diffX <= 0 and diffY > 0:        
+        angle += 180
+    elif diffX > 0 and diffY >= 0:
+        angle += 180
+    elif diffX > 0 and diffY < 0:
+        angle += 360
+    
+    return angle
+
+# Function that checks whether an angle is within a given range (inclusive of range boundaries)
+def check_Angle(angle, max_Angle, min_Angle):
+    if angle == max_Angle or angle == min_Angle:
+        return True
+    elif min_Angle > max_Angle:
+        # overlap is occuring
+        if angle > min_Angle or angle < max_Angle:
+           return True
         else:
-            pygame.draw.polygon(window,(150,200,150),rocket_mask.outline(),0)
+            return False
+    else:
+        if angle > min_Angle and angle < max_Angle:
+            return True
+        else:
+            return False
 
-        
-        
-
-        
 
 # Dynamic Game Data
 rockets = []
@@ -144,6 +217,7 @@ def handle_rocket_movement(keys_pressed, rocket):
             rocket.position = (rocket.position[0], rocket.position[1] - window_Height)
         
 
+# Rotate an object about its center point and draw it on the screen.
 def blit_rotate(image, pos, angle, object):
     imgSizeX, imgSizeY = image.get_size()
     image_rect = image.get_rect(topleft = (pos[0] - imgSizeX / 2, pos[1] - imgSizeY / 2))
@@ -179,29 +253,18 @@ def draw_window():
     window.fill(black)
     draw_asteroids()
     draw_rockets()
-
-    #Debug
-    asteroids[0].collide(rockets[0])
-
     pygame.display.update()
 
 def draw_rockets():
     for rocket in rockets:
         if rocket.color == 'blue':
             blit_rotate(blue_Rocket_Images[rocket.thrust], rocket.position, rocket.angle, rocket)
-            # window.blit(pygame.transform.rotate(
-            #     blue_Rocket_Images[rocket.thrust], rocket.angle), 
-            #     rocket.position)
-
         elif rocket.color == 'red':
             blit_rotate(red_Rocket_Images[rocket.thrust], rocket.position, rocket.angle, rocket)
-            # window.blit(pygame.transform.rotate(
-            #     red_Rocket_Images[rocket.thrust], rocket.angle), 
-            #     rocket.position)
         
         # Debug
         # Draw a circle on the rockets real position point
-        pygame.draw.circle(window, green, rocket.position, 2)
+        # pygame.draw.circle(window, green, rocket.position, 2)
 
 def draw_asteroids():
     for asteroid in asteroids:
@@ -212,8 +275,13 @@ def draw_asteroids():
         pygame.draw.circle(window, green, asteroid.position, 2)
 
 def main():
-    rockets.append(Rocket(0, (300.0, 300.0), 'red'))
+    rockets.append(Rocket(0, (700.0, 400.0), 'red'))
     generate_Asteroids(1)
+
+    # Debug
+    for asteroid in asteroids:
+        print(calculate_Angle(rockets[0], asteroid))
+
     clock = pygame.time.Clock()
     run = True
     while run:
@@ -230,17 +298,30 @@ def main():
                     pygame.quit()
                 if event.key == pygame.K_UP:                    
                     # Adjust thrust level
-                    if rockets[0].thrust < 2:
-                        rockets[0].thrust += 1
+                    rockets[0].increase_Thrust()
                 if event.key == pygame.K_DOWN:
                     # Adjust thrust level
-                    if rockets[0].thrust > 0:
-                        rockets[0].thrust -= 1
+                    rockets[0].decrease_Thrust()
 
-        keys_pressed = pygame.key.get_pressed()
-        handle_rocket_movement(keys_pressed, rockets[0])
 
+        if len(rockets) > 0:
+            keys_pressed = pygame.key.get_pressed()
+            handle_rocket_movement(keys_pressed, rockets[0])
+        
         draw_window()
+
+
+
+        # Check for collisions
+        for asteroid in asteroids:
+            for rocket in rockets:
+                asteroid.collide(rocket)
+
+        # Update things that are counting frames
+        for rocket in rockets:
+            if rocket.take_Off_Frames > 0:
+                rocket.take_Off_Frames -= 1
+
 
 if __name__ == "__main__":
     main()
