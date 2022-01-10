@@ -11,7 +11,7 @@ window = pygame.display.set_mode((window_Width, window_Height))
 pygame.display.set_caption("Pixel Rockets")
 baseDir = os.path.dirname(__file__)
 screen_Wrapping = False
-take_Off_Frames_Max = 50 # How many frames to pause collision detection after take off
+take_Off_Frames_Max = 100 # How many frames to pause collision detection after take off.
 
 # Physics Variables
 rocket_Rotation_Speed = 0.7
@@ -173,10 +173,11 @@ rockets = []
 asteroids = []
 
 def handle_rocket_movement(keys_pressed, rocket):
-    if keys_pressed [pygame.K_LEFT]: # LEFT
-        rocket.angle += rocket_Rotation_Speed
-    if keys_pressed [pygame.K_RIGHT]: # RIGHT
-        rocket.angle -= rocket_Rotation_Speed    
+    if rocket.landed == False:
+        if keys_pressed [pygame.K_LEFT]: # LEFT
+            rocket.angle += rocket_Rotation_Speed
+        if keys_pressed [pygame.K_RIGHT]: # RIGHT
+            rocket.angle -= rocket_Rotation_Speed    
 
     # Set acceleration to zero, unless there is active thrust.
     accelerationX, accelerationY = 0, 0
@@ -272,7 +273,7 @@ def draw_asteroids():
         
         # Debug
         # Draw a circle on the rockets real position point
-        pygame.draw.circle(window, green, asteroid.position, 2)
+        #pygame.draw.circle(window, green, asteroid.position, 2)
 
 def main():
     rockets.append(Rocket(0, (700.0, 400.0), 'red'))
@@ -296,21 +297,17 @@ def main():
                 if event.key == pygame.K_ESCAPE:
                     run = False
                     pygame.quit()
-                if event.key == pygame.K_UP:                    
-                    # Adjust thrust level
-                    rockets[0].increase_Thrust()
-                if event.key == pygame.K_DOWN:
-                    # Adjust thrust level
-                    rockets[0].decrease_Thrust()
-
+                if len(rockets) > 0:
+                    if event.key == pygame.K_UP:
+                        rockets[0].increase_Thrust()
+                    if event.key == pygame.K_DOWN:
+                        rockets[0].decrease_Thrust()
 
         if len(rockets) > 0:
             keys_pressed = pygame.key.get_pressed()
             handle_rocket_movement(keys_pressed, rockets[0])
         
         draw_window()
-
-
 
         # Check for collisions
         for asteroid in asteroids:
