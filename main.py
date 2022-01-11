@@ -2,6 +2,7 @@ import pygame
 import os
 import math
 import random
+import neat
 
 # Global Variables
 window_Width, window_Height = 2000, 1000
@@ -12,6 +13,9 @@ pygame.display.set_caption("Pixel Rockets")
 baseDir = os.path.dirname(__file__)
 screen_Wrapping = False
 take_Off_Frames_Max = 100 # How many frames to pause collision detection after take off.
+max_Simulation_Seconds = 25
+max_Simulation_Frames = fps * max_Simulation_Seconds
+elapsed_Frames = 0
 
 # Physics Variables
 rocket_Rotation_Speed = 0.7
@@ -76,6 +80,29 @@ class Rocket:
     def decrease_Thrust(self):
         if self.thrust > 0:
             self.thrust -= 1
+
+    def get_Angle_Of_Travel(self):
+        if self.velocityX == 0 and self.velocityY == 0:
+            return 0
+        elif self.velocityX <=0 and self.velocityY <=0:
+            return math.degrees(math.atan(self.velocityX / self.velocityY))
+        elif self.velocityX <=0 and self.velocityY > 0:
+            return math.degrees(math.atan(self.velocityX / self.velocityY)) + 180
+        elif self.velocityX > 0 and self.velocityY > 0:
+            return math.degrees(math.atan(self.velocityX / self.velocityY)) + 180
+        else:
+            return math.degrees(math.atan(self.velocityX / self.velocityY)) + 360
+
+    def get_Speed(self):
+        return math.sqrt((self.velocityX) ** 2 + (self.velocityY) ** 2)
+
+    def get_Thrust(self):
+        if self.thrust == 0:
+            return 0
+        elif self.thrust == 1:
+            return rocket_Thrust1_Force
+        else:
+            return rocket_Thrust2_Force
         
         
     def get_mask(self):
@@ -124,12 +151,25 @@ class Asteroid:
                         rocket.velocityX = 0
                         rocket.velocityY = 0
                         rocket.landed = True
+                        x = rockets.index(rocket)  
+                        ge[x].fitness = (max_Simulation_Frames - elapsed_Frames) + 1000
+                        rockets.pop(x)
+                        nets.pop(x)
+                        ge.pop(x)   
                     else:
-                        # Rocket crash landed on asteroid.     
-                        rockets.pop(rockets.index(rocket))
+                        # Rocket crash landed on asteroid in the correct orientation.   
+                        x = rockets.index(rocket)  
+                        ge[x].fitness = 2000 - (relative_Velocity * 1000)
+                        rockets.pop(x)
+                        nets.pop(x)
+                        ge.pop(x)
                 else:
-                        # Rocket crash landed on asteroid.     
-                        rockets.pop(rockets.index(rocket))            
+                    # Rocket crash landed on asteroid, for not being in the correct orientation     
+                        x = rockets.index(rocket)  
+                        ge[x].fitness = 1001
+                        rockets.pop(x)
+                        nets.pop(x)
+                        ge.pop(x)        
             
             
 
@@ -151,6 +191,14 @@ def calculate_Angle(rocket, object):
     
     return angle
 
+# Calculate a distance between a rocket and a destination object.    
+def calculate_Distance(rocket, object):
+    diffX = object.position[0] - rocket.position[0]
+    diffY = object.position[1] - rocket.position[1]
+
+    return math.sqrt((diffX) ** 2 + (diffY) ** 2)   
+
+
 # Function that checks whether an angle is within a given range (inclusive of range boundaries)
 def check_Angle(angle, max_Angle, min_Angle):
     if angle == max_Angle or angle == min_Angle:
@@ -171,6 +219,8 @@ def check_Angle(angle, max_Angle, min_Angle):
 # Dynamic Game Data
 rockets = []
 asteroids = []
+nets = []
+ge = []
 
 def handle_rocket_movement(keys_pressed, rocket):
     if rocket.landed == False:
@@ -275,19 +325,25 @@ def draw_asteroids():
         # Draw a circle on the rockets real position point
         #pygame.draw.circle(window, green, asteroid.position, 2)
 
-def main():
-    rockets.append(Rocket(0, (700.0, 400.0), 'red'))
-    generate_Asteroids(1)
+def eval_Genomes(genomes, config):
+    elapsed_Frames = 0
+    if len(asteroids) == 0:
+        generate_Asteroids(1)
 
-    # Debug
-    for asteroid in asteroids:
-        print(calculate_Angle(rockets[0], asteroid))
+    for genome_id, genome in genomes:
+        net = neat.nn.FeedForwardNetwork.create(genome, config)
+        nets.append(net)
+        rockets.append(Rocket(0, (1000, 500), 'red'))        
+        genome.fitness = 0
+        ge.append(genome)
+  
+    
 
     clock = pygame.time.Clock()
     run = True
     while run:
         # Main game loop.
-        clock.tick(fps)      
+        clock.tick()      
         # Check any events that are present.
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
@@ -297,15 +353,47 @@ def main():
                 if event.key == pygame.K_ESCAPE:
                     run = False
                     pygame.quit()
-                if len(rockets) > 0:
-                    if event.key == pygame.K_UP:
-                        rockets[0].increase_Thrust()
-                    if event.key == pygame.K_DOWN:
-                        rockets[0].decrease_Thrust()
 
-        if len(rockets) > 0:
+                # if len(rockets) > 0:
+                #     if event.key == pygame.K_UP:
+                #         rockets[0].increase_Thrust()
+                #     if event.key == pygame.K_DOWN:
+                #         rockets[0].decrease_Thrust()
+
+        # if len(rockets) > 0:
+        #     keys_pressed = pygame.key.get_pressed()
+        #     handle_rocket_movement(keys_pressed, rockets[0])
+
+        # Determine what each rocket is doing
+        for x, rocket in enumerate(rockets):
+            # Calculate Input neuron values
+            input1 = rocket.angle % 360
+            input2 = rocket.get_Angle_Of_Travel()
+            input3 = calculate_Angle(rocket, asteroids[0])
+            input4 = calculate_Distance(rocket, asteroids[0])
+            input5 = rocket.get_Speed()
+            input6 = rocket.get_Thrust()
+
+            output = nets[x].activate((input1, input2, input3, input4, input5, input6))
+            if output[0] < -0.9:
+                # Rotate Rocket Left
+                rocket.angle += rocket_Rotation_Speed
+            elif output[0] > 0.9:
+                # Rotate Rocket Right
+                rocket.angle -= rocket_Rotation_Speed
+
+            if rocket.thrust > 0:
+                if output[1] > 0.95:
+                    rocket.increase_Thrust()
+            else:
+                if output[1] < 0.9:
+                    rocket.decrease_Thrust()
+                elif output[1] > 0.99:
+                    rocket.increase_Thrust()
+
             keys_pressed = pygame.key.get_pressed()
-            handle_rocket_movement(keys_pressed, rockets[0])
+            handle_rocket_movement(keys_pressed, rocket)
+        
         
         draw_window()
 
@@ -319,6 +407,43 @@ def main():
             if rocket.take_Off_Frames > 0:
                 rocket.take_Off_Frames -= 1
 
+        elapsed_Frames += 1
+        # End of the simulation if time has elapsed or there is no rockets remaining.
+        if elapsed_Frames >= max_Simulation_Frames or len(rockets) == 0:
+            # The simulation has run for its maximum allowed time.
+            run = False
+
+            # Assign fitness for any rockets that did not touch the asteroid
+            for rocket in rockets:
+                if rocket.position[0] == 1000 and rocket.position[1] == 500:
+                    x = rockets.index(rocket)
+                    ge[x].fitness = 0
+                else:
+                    distance = calculate_Distance(rocket, asteroids[0])
+                    x = rockets.index(rocket)  
+                    ge[x].fitness = distance * -1 + 1000
+                rockets.pop(x)
+                nets.pop(x)
+                ge.pop(x) 
+
+    rockets.clear()
+    #asteroids.clear()
+    nets.clear()
+    ge.clear()        
+
+
+
+def run(config_path):
+    config = neat.Config(neat.DefaultGenome, neat.DefaultReproduction, neat.DefaultSpeciesSet, neat.DefaultStagnation, config_path)
+
+    p = neat.Population(config)
+
+    # Report some details about the population to the console.
+    p.add_reporter(neat.StdOutReporter(True))
+    p.add_reporter(neat.StatisticsReporter())
+
+    winner = p.run(eval_Genomes, 1000)
 
 if __name__ == "__main__":
-    main()
+    config_path = os.path.join(baseDir, "neat.config")
+    run(config_path)
