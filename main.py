@@ -13,9 +13,12 @@ pygame.display.set_caption("Pixel Rockets")
 baseDir = os.path.dirname(__file__)
 screen_Wrapping = False
 take_Off_Frames_Max = 100 # How many frames to pause collision detection after take off.
-max_Simulation_Seconds = 25
-max_Simulation_Frames = fps * max_Simulation_Seconds
+max_Simulation_Seconds = 15
+max_Simulation_Frames = 2000
 elapsed_Frames = 0
+generation_Count = 0
+starting_X, starting_Y = window_Width // 2, window_Height // 2
+
 
 # Physics Variables
 rocket_Rotation_Speed = 0.7
@@ -67,6 +70,7 @@ class Rocket:
         self.thrust = 0
         self.landed = False
         self.take_Off_Frames = 0
+        self.bonus_Fitness = 2000
 
     def increase_Thrust(self):
         if self.thrust == 0:
@@ -133,43 +137,60 @@ class Asteroid:
                 # Rocket is in contact with the asteroid.
                 # Ensure that the rocket is landing on its base
                 angle_Asteroid = calculate_Angle(rocket, self)
+                rocket_Angle = rocket.angle % 360
+                travelling_Angle = rocket.get_Angle_Of_Travel()
                 opposite_Angle = 0
                 if angle_Asteroid >= 180:
                     opposite_Angle = angle_Asteroid - 180
                 else:
                     opposite_Angle = angle_Asteroid + 180
-                max_Angle = (opposite_Angle + 90) % 360
-                min_Angle = (opposite_Angle - 90) % 360       
+                max_Angle = (opposite_Angle + 60) % 360
+                min_Angle = (opposite_Angle - 60) % 360
+                max_Angle_Travelling = (angle_Asteroid + 60) % 360
+                min_Angle_Travelling = (angle_Asteroid - 60) % 360
+
+
+                # Calculate relative velocity between objects.
+                relative_Velocity = math.sqrt((self.velocityX - rocket.velocityX) ** 2 + (self.velocityY - rocket.velocityY) ** 2)    
 
                 # Check whether the rocket is landing in the correct orientation.
-                if check_Angle(rocket.angle % 360, max_Angle, min_Angle):
-                    # Calculate relative velocity between objects.
-                    relative_Velocity = math.sqrt((self.velocityX - rocket.velocityX) ** 2 + (self.velocityY - rocket.velocityY) ** 2)      
+                if check_Angle(rocket_Angle, max_Angle, min_Angle) and check_Angle(travelling_Angle, max_Angle_Travelling, min_Angle_Travelling):                      
                     if relative_Velocity < crash_Speed_Threshold:
                         # Rocket landed slowly enough to land.
+                        global elapsed_Frames
                         rocket.thrust = 0
                         rocket.velocityX = 0
                         rocket.velocityY = 0
                         rocket.landed = True
                         x = rockets.index(rocket)  
-                        ge[x].fitness = (max_Simulation_Frames - elapsed_Frames) + 1000
+                        ge[x].fitness = (max_Simulation_Frames - elapsed_Frames) + 14001 + rocket.bonus_Fitness
                         rockets.pop(x)
                         nets.pop(x)
                         ge.pop(x)   
                     else:
-                        # Rocket crash landed on asteroid in the correct orientation.   
-                        x = rockets.index(rocket)  
-                        ge[x].fitness = 2000 - (relative_Velocity * 1000)
+                        # Rocket crash landed on asteroid in the correct orientation.
+                        # Rocket loses fitness for crashing at a faster speed. 
+                        angle_Diff = abs(calculate_Angle_Difference(rocket_Angle, angle_Asteroid))
+                        fitness_Points = angle_Diff * 11.11111 # will add up to 2000 fitness points for an angle that was very close to being correct.
+                        x = rockets.index(rocket)
+                        lost_Fitness = (relative_Velocity - crash_Speed_Threshold) * 1000
+                        if lost_Fitness > 2000:
+                            lost_Fitness = 2000
+                        ge[x].fitness = (10001 - lost_Fitness) + rocket.bonus_Fitness + fitness_Points
                         rockets.pop(x)
                         nets.pop(x)
                         ge.pop(x)
                 else:
-                    # Rocket crash landed on asteroid, for not being in the correct orientation     
-                        x = rockets.index(rocket)  
-                        ge[x].fitness = 1001
-                        rockets.pop(x)
-                        nets.pop(x)
-                        ge.pop(x)        
+                    # Rocket crash landed on asteroid, for not being in the correct orientation
+
+                    # Check how close the rocket was to landing in the correct orientation
+                    angle_Diff = abs(calculate_Angle_Difference(rocket_Angle, angle_Asteroid))
+                    fitness_Points = angle_Diff * 11.11111 # will add up to 2000 fitness points for an angle that was very close to being correct.
+                    x = rockets.index(rocket)  
+                    ge[x].fitness = 4001 + fitness_Points + rocket.bonus_Fitness
+                    rockets.pop(x)
+                    nets.pop(x)
+                    ge.pop(x)        
             
             
 
@@ -198,6 +219,26 @@ def calculate_Distance(rocket, object):
 
     return math.sqrt((diffX) ** 2 + (diffY) ** 2)   
 
+# Calculate difference between two angles
+def calculate_Angle_Difference(angle1, angle2):
+    if angle1 == angle2:
+        return 0
+    elif angle2 > angle1:
+        diff1 = angle2 - angle1
+        diff2 = ((angle1 + 360) - angle2) * -1
+        if abs(diff1) >= abs(diff2):
+            return diff2
+        else:
+            return diff1
+    else:
+        #angle1 > angle2
+        diff1 = angle2 - angle1
+        diff2 = (angle2 + 360) - angle1
+        if abs(diff1) >= abs(diff2):
+            return diff2
+        else:
+            return diff1
+
 
 # Function that checks whether an angle is within a given range (inclusive of range boundaries)
 def check_Angle(angle, max_Angle, min_Angle):
@@ -222,12 +263,7 @@ asteroids = []
 nets = []
 ge = []
 
-def handle_rocket_movement(keys_pressed, rocket):
-    if rocket.landed == False:
-        if keys_pressed [pygame.K_LEFT]: # LEFT
-            rocket.angle += rocket_Rotation_Speed
-        if keys_pressed [pygame.K_RIGHT]: # RIGHT
-            rocket.angle -= rocket_Rotation_Speed    
+def handle_rocket_movement(rocket):
 
     # Set acceleration to zero, unless there is active thrust.
     accelerationX, accelerationY = 0, 0
@@ -312,6 +348,9 @@ def draw_rockets():
             blit_rotate(blue_Rocket_Images[rocket.thrust], rocket.position, rocket.angle, rocket)
         elif rocket.color == 'red':
             blit_rotate(red_Rocket_Images[rocket.thrust], rocket.position, rocket.angle, rocket)
+
+        if len(rockets) > 0:
+            blit_rotate(blue_Rocket_Images[rockets[0].thrust], rockets[0].position, rockets[0].angle, rockets[0])
         
         # Debug
         # Draw a circle on the rockets real position point
@@ -326,14 +365,22 @@ def draw_asteroids():
         #pygame.draw.circle(window, green, asteroid.position, 2)
 
 def eval_Genomes(genomes, config):
+    global elapsed_Frames    
+    global generation_Count
     elapsed_Frames = 0
-    if len(asteroids) == 0:
+    print (generation_Count)
+    if generation_Count % 100 == 0:
+        if len(asteroids) > 0:
+            asteroids.clear()
         generate_Asteroids(1)
 
     for genome_id, genome in genomes:
         net = neat.nn.FeedForwardNetwork.create(genome, config)
         nets.append(net)
-        rockets.append(Rocket(0, (1000, 500), 'red'))        
+        if len(rockets) == 0:
+            rockets.append(Rocket(0, (starting_X, starting_Y), 'blue'))     
+        else:
+            rockets.append(Rocket(0, (starting_X, starting_Y), 'red'))      
         genome.fitness = 0
         ge.append(genome)
   
@@ -343,7 +390,8 @@ def eval_Genomes(genomes, config):
     run = True
     while run:
         # Main game loop.
-        clock.tick()      
+        clock.tick()
+
         # Check any events that are present.
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
@@ -366,33 +414,59 @@ def eval_Genomes(genomes, config):
 
         # Determine what each rocket is doing
         for x, rocket in enumerate(rockets):
+            rocket_Facing_Angle = rocket.angle % 360            
+            rocket_Traveling_Angle = rocket.get_Angle_Of_Travel()
+            asteroid_Angle = calculate_Angle(rocket, asteroids[0])
+            opposite_Asteroid_Angle = (asteroid_Angle + 180) % 360
+
             # Calculate Input neuron values
-            input1 = rocket.angle % 360
-            input2 = rocket.get_Angle_Of_Travel()
-            input3 = calculate_Angle(rocket, asteroids[0])
-            input4 = calculate_Distance(rocket, asteroids[0])
-            input5 = rocket.get_Speed()
-            input6 = rocket.get_Thrust()
+            input1 = calculate_Angle_Difference(rocket_Facing_Angle, asteroid_Angle)
+            input2 = calculate_Angle_Difference(rocket_Facing_Angle, opposite_Asteroid_Angle)
+            input3 = calculate_Angle_Difference(rocket_Traveling_Angle, asteroid_Angle)
+            input4 = calculate_Angle_Difference(rocket_Traveling_Angle, opposite_Asteroid_Angle)
+            input5 = calculate_Distance(rocket, asteroids[0])
+            input6 = rocket.get_Speed()
+            input7 = rocket.get_Thrust()
 
-            output = nets[x].activate((input1, input2, input3, input4, input5, input6))
-            if output[0] < -0.9:
-                # Rotate Rocket Left
+            #Debug
+            if x == 0:
+                i = 0
+                pass
+
+            output = nets[x].activate((input1, input2, input3, input4, input5, input6, input7))
+            
+            if output[0] < 0.5 and output[1] < 0.5:
+                pass
+            elif output[0] < output[1]:
                 rocket.angle += rocket_Rotation_Speed
-            elif output[0] > 0.9:
-                # Rotate Rocket Right
-                rocket.angle -= rocket_Rotation_Speed
-
-            if rocket.thrust > 0:
-                if output[1] > 0.95:
-                    rocket.increase_Thrust()
+                if rocket.bonus_Fitness > 0:
+                    rocket.bonus_Fitness -= 1
             else:
-                if output[1] < 0.9:
-                    rocket.decrease_Thrust()
-                elif output[1] > 0.99:
-                    rocket.increase_Thrust()
+                rocket.angle -= rocket_Rotation_Speed
+                if rocket.bonus_Fitness > 0:
+                    rocket.bonus_Fitness -= 1
+            # if output[0] < -0.999:
+            #     # Rotate Rocket Left
+            #     rocket.angle += rocket_Rotation_Speed
+            # elif output[0] > 0.999:
+            #     # Rotate Rocket Right
+            #     rocket.angle -= rocket_Rotation_Speed
 
-            keys_pressed = pygame.key.get_pressed()
-            handle_rocket_movement(keys_pressed, rocket)
+            if output[2] > output[3]:
+                rocket.increase_Thrust()
+            else:
+                rocket.decrease_Thrust()
+
+            # if rocket.thrust > 0:
+            #     if output[1] > 0.95:
+            #         rocket.increase_Thrust()
+            # else:
+            #     if output[1] < 0.98:
+            #         rocket.decrease_Thrust()
+            #     elif output[1] > 0.99:
+            #         rocket.increase_Thrust()
+
+            handle_rocket_movement(rocket)
         
         
         draw_window()
@@ -408,6 +482,7 @@ def eval_Genomes(genomes, config):
                 rocket.take_Off_Frames -= 1
 
         elapsed_Frames += 1
+        
         # End of the simulation if time has elapsed or there is no rockets remaining.
         if elapsed_Frames >= max_Simulation_Frames or len(rockets) == 0:
             # The simulation has run for its maximum allowed time.
@@ -415,17 +490,23 @@ def eval_Genomes(genomes, config):
 
             # Assign fitness for any rockets that did not touch the asteroid
             for rocket in rockets:
-                if rocket.position[0] == 1000 and rocket.position[1] == 500:
-                    x = rockets.index(rocket)
+                x = rockets.index(rocket)
+                if rocket.position[0] == starting_X and rocket.position[1] == starting_Y:
+                    #Rocket did not move from its starting position, award it 0 fitness.
                     ge[x].fitness = 0
                 else:
+                    # Rocket did not come into contact with an asteroid, fitness is a function of how close it came, and how little it rotated.
+                    # Possible fitness values: 0 - 4000
                     distance = calculate_Distance(rocket, asteroids[0])
-                    x = rockets.index(rocket)  
-                    ge[x].fitness = distance * -1 + 1000
+                    if distance > 6000:
+                        ge[x].fitness = rocket.bonus_Fitness
+                    else:
+                        ge[x].fitness = (2000 - distance / 3) + rocket.bonus_Fitness
                 rockets.pop(x)
                 nets.pop(x)
                 ge.pop(x) 
 
+    generation_Count += 1
     rockets.clear()
     #asteroids.clear()
     nets.clear()
@@ -442,7 +523,7 @@ def run(config_path):
     p.add_reporter(neat.StdOutReporter(True))
     p.add_reporter(neat.StatisticsReporter())
 
-    winner = p.run(eval_Genomes, 1000)
+    winner = p.run(eval_Genomes, 100000)
 
 if __name__ == "__main__":
     config_path = os.path.join(baseDir, "neat.config")
