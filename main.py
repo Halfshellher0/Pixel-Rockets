@@ -171,7 +171,10 @@ class Asteroid:
                         # Rocket crash landed on asteroid in the correct orientation.
                         # Rocket loses fitness for crashing at a faster speed. 
                         angle_Diff = abs(calculate_Angle_Difference(rocket_Angle, angle_Asteroid))
-                        fitness_Points = angle_Diff * 11.11111 # will add up to 2000 fitness points for an angle that was very close to being correct.
+                        angle_Diff2 = abs(calculate_Angle_Difference(travelling_Angle, angle_Asteroid))
+                        fitness_Points = angle_Diff * 8.33333 - angle_Diff2 * 2.7777 # will add up to 2000 fitness points for an angle that was very close to being correct.
+                        if fitness_Points < 0:
+                            fitness_Points = 0
                         x = rockets.index(rocket)
                         lost_Fitness = (relative_Velocity - crash_Speed_Threshold) * 1000
                         if lost_Fitness > 2000:
@@ -185,7 +188,10 @@ class Asteroid:
 
                     # Check how close the rocket was to landing in the correct orientation
                     angle_Diff = abs(calculate_Angle_Difference(rocket_Angle, angle_Asteroid))
-                    fitness_Points = angle_Diff * 11.11111 # will add up to 2000 fitness points for an angle that was very close to being correct.
+                    angle_Diff2 = abs(calculate_Angle_Difference(travelling_Angle, angle_Asteroid))
+                    fitness_Points = angle_Diff * 8.33333 - angle_Diff2 * 2.7777 # will add up to 2000 fitness points for an angle that was very close to being correct.
+                    if fitness_Points < 0:
+                        fitness_Points = 0
                     x = rockets.index(rocket)  
                     ge[x].fitness = 4001 + fitness_Points + rocket.bonus_Fitness
                     rockets.pop(x)
@@ -420,20 +426,22 @@ def eval_Genomes(genomes, config):
             opposite_Asteroid_Angle = (asteroid_Angle + 180) % 360
 
             # Calculate Input neuron values
+            distance = calculate_Distance(rocket, asteroids[0])
             input1 = calculate_Angle_Difference(rocket_Facing_Angle, asteroid_Angle)
             input2 = calculate_Angle_Difference(rocket_Facing_Angle, opposite_Asteroid_Angle)
             input3 = calculate_Angle_Difference(rocket_Traveling_Angle, asteroid_Angle)
             input4 = calculate_Angle_Difference(rocket_Traveling_Angle, opposite_Asteroid_Angle)
             input5 = calculate_Distance(rocket, asteroids[0])
-            input6 = rocket.get_Speed()
-            input7 = rocket.get_Thrust()
+            input6 = distance
+            input7 = rocket.get_Speed() / distance
+            input8 = rocket.get_Thrust()
 
             #Debug
             if x == 0:
                 i = 0
                 pass
 
-            output = nets[x].activate((input1, input2, input3, input4, input5, input6, input7))
+            output = nets[x].activate((input1, input2, input3, input4, input5, input6, input7, input8))
             
             if output[0] < 0.5 and output[1] < 0.5:
                 pass
